@@ -6,7 +6,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
 
-# STATISTICAL IMPORTS (removing sklearn dependency to avoid installation issues)
+# STATISTICAL IMPORTS
 import scipy.stats as stats
 from scipy.stats import chi2_contingency
 import json
@@ -25,10 +25,8 @@ taxonomy_xlsx_path = str(Path(BASE_DIR) / "Industry_categories.xlsx")
 out_dir = Path(BASE_DIR) / "analysis_results"
 out_dir.mkdir(parents=True, exist_ok=True)
 
-print("=" * 80)
-print("INDUSTRY-FOCUSED BLOCKCHAIN COPYRIGHT ANALYSIS (7 CATEGORIES)")
-print("Selected categories | XLSX-driven keywords | Outputs -> analysis_results")
-print("=" * 80)
+print("BLOCKCHAIN COPYRIGHT ANALYSIS")
+print("="*35)
 
 # --------------------------------------------------------------------------
 # LOAD DATA
@@ -57,7 +55,7 @@ if 'year' not in papers_df.columns:
     papers_df['year'] = np.nan
 papers_df['year'] = pd.to_numeric(papers_df['year'], errors='coerce')
 
-print("Loading taxonomy XLSX...")
+print("Loading taxonomy...")
 try:
     taxonomy_df = pd.read_excel(taxonomy_xlsx_path, engine="openpyxl")
     print(f"Loaded {len(taxonomy_df)} keyword→category rows")
@@ -66,27 +64,17 @@ except Exception as e:
     sys.exit(1)
 
 # --------------------------------------------------------------------------
-# TAXONOMY: SELECTED INDUSTRY LABELS (UPDATED)
+# TAXONOMY: SELECTED INDUSTRY LABELS
 # --------------------------------------------------------------------------
 SELECTED_CATEGORIES = [
     "Music & Audio",
-    "Creative Arts",  # Updated from "Art & Creativity"
-    "Culture & Museums",  # New category
+    "Creative Arts",
+    "Culture & Museums",
     "Media & Entertainment",
-    "Publishing & Libraries",  # Updated from "Publishing & Information Services"
-    "Education & Training",  # New category
+    "Publishing & Libraries",
+    "Education & Training",
     "NFT & Digital Assets"
 ]
-
-# Replace old category names with new ones in the taxonomy
-category_replacements = {
-    'Music Industry': 'Music & Audio',
-    'Art & Creativity': 'Creative Arts',
-    'Publishing & Information Services': 'Publishing & Libraries'
-}
-
-for old_name, new_name in category_replacements.items():
-    taxonomy_df['Category'] = taxonomy_df['Category'].replace(old_name, new_name)
 
 filtered_taxonomy = taxonomy_df[taxonomy_df['Category'].isin(SELECTED_CATEGORIES)].copy()
 filtered_taxonomy['Keyword'] = filtered_taxonomy['Keyword'].astype(str).str.strip().str.lower()
@@ -103,7 +91,7 @@ for industry, keywords in CREATIVE_INDUSTRIES.items():
     print(f"  • {industry}: {len(keywords)} keywords")
 
 # --------------------------------------------------------------------------
-# BLOCKCHAIN COPYRIGHT SOLUTIONS (RESTRUCTURED - MECHANISM-BASED)
+# BLOCKCHAIN COPYRIGHT SOLUTIONS
 # --------------------------------------------------------------------------
 SOLUTION_RULES = {
     "Rights Registration & Timestamping": [
@@ -140,7 +128,6 @@ def build_solution_dict(df_map, rules):
             for k in selected:
                 w = 3 if (" " in k or "-" in k) else 2
                 buckets[bucket][k] = max(buckets[bucket].get(k, 0), w)
-        # Remove generic terms that could cause misclassification
         for g in ["content", "image", "media", "art"]:
             buckets[bucket].pop(g, None)
     return buckets
@@ -156,7 +143,6 @@ FIELD_WEIGHTS = {'title': 3.0, 'keywords': 2.0, 'abstract': 1.0}
 MIN_ABS = 5.0
 MIN_REL = 0.25
 
-# METHODOLOGY DOCUMENTATION
 METHODOLOGY_CONFIG = {
     'version': '2.1',
     'analysis_date': datetime.now().isoformat(),
@@ -170,7 +156,7 @@ METHODOLOGY_CONFIG = {
     'solution_categories': {
         'approach': 'Mechanism-based blockchain solutions',
         'categories': list(BLOCKCHAIN_COPYRIGHT_SOLUTIONS.keys()),
-        'rationale': 'Eliminated redundant Copyright Protection category, focused on specific blockchain mechanisms'
+        'rationale': 'Focused on specific blockchain mechanisms'
     },
     'data_preprocessing': {
         'deduplication': True,
@@ -251,7 +237,6 @@ try:
     results = papers_df.apply(classify_row, axis=1)
     results_df = pd.DataFrame(list(results))
     papers_df = pd.concat([papers_df.reset_index(drop=True), results_df.reset_index(drop=True)], axis=1)
-    # Only keep selected industries (or 'Other/Unclassified')
     papers_df = papers_df[papers_df['target_industry'].isin(SELECTED_CATEGORIES + ['Other/Unclassified'])]
     industry_specific = int((papers_df['target_industry'] != 'Other/Unclassified').sum())
     solution_classified = int((papers_df['blockchain_solution'] != 'Other').sum())
@@ -262,11 +247,10 @@ except Exception as e:
     sys.exit(1)
 
 # --------------------------------------------------------------------------
-# ANALYSIS - FILTER OUT 'OTHER' CATEGORIES
+# ANALYSIS
 # --------------------------------------------------------------------------
 print("\nAnalyzing...")
 
-# Filter out 'Other/Unclassified' and 'Other' for analysis
 filtered_papers = papers_df[
     (papers_df['target_industry'] != 'Other/Unclassified') & 
     (papers_df['blockchain_solution'] != 'Other')
@@ -275,7 +259,6 @@ filtered_papers = papers_df[
 industry_dist = filtered_papers['target_industry'].value_counts()
 solution_dist = filtered_papers['blockchain_solution'].value_counts()
 
-# Industry analysis - only for specific industries
 industry_analysis = []
 for industry, total in industry_dist.items():
     subset = filtered_papers[filtered_papers['target_industry'] == industry]
@@ -298,7 +281,6 @@ for industry, total in industry_dist.items():
         'Solution_Diversity': int(len(sol_counts))
     })
 
-# Solution analysis - only for specific solutions
 solution_analysis = []
 for solution, total in solution_dist.items():
     subset = filtered_papers[filtered_papers['blockchain_solution'] == solution]
@@ -315,19 +297,18 @@ for solution, total in solution_dist.items():
     })
 
 # --------------------------------------------------------------------------
-# VISUALS - UPDATED TO EXCLUDE 'OTHER' CATEGORIES + TEMPORAL ANALYSIS
+# VISUALIZATIONS
 # --------------------------------------------------------------------------
 print("\nCreating charts...")
 def _break_label(s): return s.replace(' & ', '\n& ')
 
-# Temporal Analysis - Research evolution over time
 try:
     yearly_growth = filtered_papers.groupby(['year', 'target_industry']).size().unstack(fill_value=0)
     solution_trends = filtered_papers.groupby(['year', 'blockchain_solution']).size().unstack(fill_value=0)
     
-    # Improved Industry trends over time - SAME FORMAT AS COMBINED ANALYSIS
+    # Industry trends
     if not yearly_growth.empty:
-        fig, ax = plt.subplots(figsize=(12, 6))  # Single subplot like combined analysis
+        fig, ax = plt.subplots(figsize=(12, 6))
         yearly_growth.plot(kind='line', marker='o', linewidth=2.5, markersize=6, alpha=0.8, ax=ax)
         ax.set_xlabel('Year', weight='bold', fontsize=10)
         ax.set_ylabel('Number of Papers', weight='bold', fontsize=10)
@@ -335,7 +316,6 @@ try:
         ax.grid(True, alpha=0.3, linestyle='--')
         ax.spines['top'].set_visible(False)
         ax.spines['right'].set_visible(False)
-        # Force integer years on x-axis
         year_min, year_max = yearly_growth.index.min(), yearly_growth.index.max()
         ax.set_xticks(range(int(year_min), int(year_max) + 1, max(1, int((year_max - year_min) / 5))))
         plt.tight_layout()
@@ -343,9 +323,9 @@ try:
         plt.close()
         print("Saved: temporal_industry_trends.png")
     
-    # Improved Solution trends over time - SAME FORMAT AS COMBINED ANALYSIS
+    # Solution trends
     if not solution_trends.empty:
-        fig, ax = plt.subplots(figsize=(12, 6))  # Single subplot like combined analysis
+        fig, ax = plt.subplots(figsize=(12, 6))
         solution_trends.plot(kind='line', marker='o', linewidth=2.5, markersize=6, alpha=0.8, ax=ax)
         ax.set_xlabel('Year', weight='bold', fontsize=10)
         ax.set_ylabel('Number of Papers', weight='bold', fontsize=10)
@@ -353,7 +333,6 @@ try:
         ax.grid(True, alpha=0.3, linestyle='--')
         ax.spines['top'].set_visible(False)
         ax.spines['right'].set_visible(False)
-        # Force integer years on x-axis
         year_min, year_max = solution_trends.index.min(), solution_trends.index.max()
         ax.set_xticks(range(int(year_min), int(year_max) + 1, max(1, int((year_max - year_min) / 5))))
         plt.tight_layout()
@@ -361,20 +340,18 @@ try:
         plt.close()
         print("Saved: temporal_solution_trends.png")
 
-    # Combined Industry-Solution evolution - SPLIT INTO TWO CHARTS - NO TITLES
+    # Combined charts
     try:
         available_industries = [industry for industry in SELECTED_CATEGORIES 
                                if industry in filtered_papers['target_industry'].values]
         
-        # Get industry counts for ordering
         industry_counts = filtered_papers['target_industry'].value_counts()
         ordered_industries = [ind for ind in industry_counts.index if ind in available_industries]
         
-        # Split into top 3 and remaining industries
         top_3_industries = ordered_industries[:3]
         remaining_industries = ordered_industries[3:]
         
-        # CHART 1: Top 3 Industries - NO TITLE
+        # Top 3 industries
         if top_3_industries:
             fig, axes = plt.subplots(1, 3, figsize=(18, 6))
             if len(top_3_industries) == 1:
@@ -394,17 +371,15 @@ try:
                         axes[i].legend(fontsize=8, loc='upper left')
                         axes[i].spines['top'].set_visible(False)
                         axes[i].spines['right'].set_visible(False)
-                        # Force integer years for each subplot
                         year_min, year_max = solution_by_year.index.min(), solution_by_year.index.max()
                         axes[i].set_xticks(range(int(year_min), int(year_max) + 1, max(1, int((year_max - year_min) / 5))))
             
-            # plt.suptitle removed as requested
             plt.tight_layout()
             plt.savefig(out_dir / 'temporal_industry_solution_top3.png', dpi=300, bbox_inches='tight')
             plt.close()
             print(f"Saved: temporal_industry_solution_top3.png ({len(top_3_industries)} industries)")
         
-        # CHART 2: Remaining Industries (2x2 grid) - NO TITLE
+        # Remaining industries
         if remaining_industries:
             rows = 2
             cols = 2
@@ -426,7 +401,6 @@ try:
                             axes[i].legend(fontsize=8, loc='upper left')
                             axes[i].spines['top'].set_visible(False)
                             axes[i].spines['right'].set_visible(False)
-                            # Force integer years for each subplot
                             year_min, year_max = solution_by_year.index.min(), solution_by_year.index.max()
                             axes[i].set_xticks(range(int(year_min), int(year_max) + 1, max(1, int((year_max - year_min) / 5))))
                         else:
@@ -434,11 +408,9 @@ try:
                                        ha='center', va='center', transform=axes[i].transAxes, fontsize=12)
                             axes[i].set_title(f'{industry}\n(Limited Data)', weight='bold', fontsize=12)
             
-            # Hide empty subplots
             for j in range(len(remaining_industries), len(axes)):
                 axes[j].set_visible(False)
             
-            # plt.suptitle removed as requested
             plt.tight_layout()
             plt.savefig(out_dir / 'temporal_industry_solution_remaining.png', dpi=300, bbox_inches='tight')
             plt.close()
@@ -450,7 +422,7 @@ try:
 except Exception as e:
     print(f"Temporal analysis error: {e}")
 
-# Industry bar - only specific industries
+# Additional charts
 try:
     if len(industry_dist) > 0:
         ind_data = list(industry_dist.items())
@@ -470,12 +442,10 @@ try:
 except Exception as e:
     print(f"Industry chart error: {e}")
 
-# Stacked Bar Chart: Top Blockchain Solutions by Industry - filtered
 try:
     crosstab = pd.crosstab(filtered_papers['target_industry'], filtered_papers['blockchain_solution'])
     
     if crosstab.size > 0:
-        # Remove any zero-sum rows or columns
         crosstab_filtered = crosstab.loc[:, (crosstab != 0).any(axis=0)]
         crosstab_filtered = crosstab_filtered.loc[(crosstab_filtered != 0).any(axis=1), :]
         
@@ -489,25 +459,20 @@ try:
             plt.savefig(out_dir / 'industry_solution_stacked_bar.png', dpi=150)
             plt.close()
             print("Saved: industry_solution_stacked_bar.png")
+            
+            plt.figure(figsize=(14, max(6, 1.2 * len(crosstab_filtered.index))))
+            sns.heatmap(crosstab_filtered, annot=True, fmt='d', cmap='Blues', cbar_kws={'label':'Number of Papers'})
+            plt.xticks(rotation=45, ha='right'); plt.yticks(rotation=0)
+            plt.title('Industry–Solution Matrix', weight='bold', pad=12)
+            plt.tight_layout(); plt.savefig(out_dir / 'industry_solution_matrix.png', dpi=150, bbox_inches='tight'); plt.close()
+            print("Saved: industry_solution_matrix.png")
 except Exception as e:
-    print(f"Stacked bar chart error: {e}")
-
-# Heatmap - filtered
-try:
-    if 'crosstab_filtered' in locals() and crosstab_filtered.size > 0:
-        plt.figure(figsize=(14, max(6, 1.2 * len(crosstab_filtered.index))))
-        sns.heatmap(crosstab_filtered, annot=True, fmt='d', cmap='Blues', cbar_kws={'label':'Number of Papers'})
-        plt.xticks(rotation=45, ha='right'); plt.yticks(rotation=0)
-        plt.title('Industry–Solution Matrix', weight='bold', pad=12)
-        plt.tight_layout(); plt.savefig(out_dir / 'industry_solution_matrix.png', dpi=150, bbox_inches='tight'); plt.close()
-        print("Saved: industry_solution_matrix.png")
-except Exception as e:
-    print(f"Matrix chart error: {e}")
+    print(f"Chart error: {e}")
 
 # --------------------------------------------------------------------------
-# EXPORTS - UPDATED
+# EXPORTS
 # --------------------------------------------------------------------------
-print("\nExporting CSVs...")
+print("\nExporting files...")
 try:
     main_cols = [
         'title','authors','year','journal','target_industry','blockchain_solution',
@@ -526,12 +491,10 @@ try:
         pd.DataFrame(solution_analysis).to_csv(out_dir / 'solution_analysis.csv', index=False, encoding='utf-8')
         print("✓ solution_analysis.csv")
 
-    # Save filtered contingency table (without 'Other' categories)
     if 'crosstab_filtered' in locals() and crosstab_filtered.size > 0:
         crosstab_filtered.to_csv(out_dir / 'contingency_table_full.csv', encoding='utf-8')
         print("✓ contingency_table_full.csv")
 
-    # Save temporal analysis data
     if 'yearly_growth' in locals() and not yearly_growth.empty:
         yearly_growth.to_csv(out_dir / 'temporal_industry_analysis.csv', encoding='utf-8')
         print("✓ temporal_industry_analysis.csv")
@@ -544,240 +507,59 @@ except Exception as e:
     print(f"Export error: {e}")
 
 # --------------------------------------------------------------------------
-# STATISTICAL VALIDATION ANALYSIS - UPDATED
+# STATISTICAL VALIDATION
 # --------------------------------------------------------------------------
+print("\nStatistical validation...")
 
-print("\n" + "="*80)
-print("STATISTICAL VALIDATION & ACADEMIC RIGOR TESTS")
-print("="*80)
-
-# Use filtered data for statistical analysis
 n = len(filtered_papers)
-classification_rate = 1.0  # Since we're only using classified papers now
+print(f"Industry-specific papers: {n:,}")
 
-print(f"\n1. SAMPLE SIZE & CLASSIFICATION:")
-print(f"   Industry-specific papers: {n:,}")
-print(f"   Assessment: {'✅ EXCELLENT' if n > 1000 else '✅ GOOD' if n > 500 else '⚠️  MODERATE'}")
-
-# 2. CHI-SQUARE TEST FOR ASSOCIATIONS - using filtered data
 if 'crosstab_filtered' in locals() and crosstab_filtered.size > 0:
     contingency = crosstab_filtered
     chi2, p_value, dof, expected = chi2_contingency(contingency)
-
-    # Calculate effect size (Cramér's V)
     n_total = contingency.sum().sum()
     cramers_v = np.sqrt(chi2 / (n_total * (min(contingency.shape) - 1)))
+    print(f"Chi-square: {chi2:.2f}, p-value: {p_value:.2e}")
+    print(f"Effect size (Cramer's V): {cramers_v:.3f}")
 
-    print(f"\n2. INDUSTRY-SOLUTION ASSOCIATIONS:")
-    print(f"   Chi-square statistic: {chi2:.2f}")
-    print(f"   p-value: {p_value:.2e}")
-    print(f"   Effect size (Cramer's V): {cramers_v:.3f}")
-    print(f"   Assessment: {'✅ LARGE EFFECT' if cramers_v > 0.3 else '✅ MEDIUM EFFECT' if cramers_v > 0.1 else '⚠️  SMALL EFFECT'}")
-    print(f"   Statistically significant: {'✅ YES' if p_value < 0.05 else '❌ NO'}")
-
-# 3. CONFIDENCE SCORE ANALYSIS - using filtered data
 confidence_scores = filtered_papers['industry_confidence_abs']
 mean_confidence = confidence_scores.mean()
 std_confidence = confidence_scores.std()
+print(f"Mean confidence: {mean_confidence:.1f} (SD: {std_confidence:.1f})")
 
-print(f"\n3. CLASSIFICATION CONFIDENCE:")
-print(f"   Mean confidence: {mean_confidence:.1f}")
-print(f"   Standard deviation: {std_confidence:.1f}")
-print(f"   Assessment: {'✅ STRONG' if mean_confidence > 25 else '✅ MODERATE' if mean_confidence > 15 else '⚠️  WEAK'}")
-
-# 4. DISTRIBUTION BALANCE
 industry_counts = filtered_papers['target_industry'].value_counts()
 cv = industry_counts.std() / industry_counts.mean()
+print(f"Distribution balance (CV): {cv:.2f}")
 
-print(f"\n4. DISTRIBUTION BALANCE:")
-print(f"   Coefficient of variation: {cv:.2f}")
-print(f"   Assessment: {'✅ BALANCED' if cv < 0.5 else '✅ MODERATE' if cv < 1.0 else '⚠️  SKEWED'}")
-
-# 5. CONFIDENCE INTERVALS (95% CI) - Not applicable since we're using 100% classified data
-print(f"\n5. DATA QUALITY:")
-print(f"   Industry-specific papers: {n:,} (100% of analyzed data)")
-print(f"   Solution-classified papers: {n:,} (100% of analyzed data)")
-
-# 6. PUBLICATION READINESS CHECKLIST
-print(f"\n6. PUBLICATION READINESS:")
-criteria = [
-    ("Large sample size (>500)", n > 500),
-    ("Significant associations (p<0.05)", p_value < 0.05 if 'p_value' in locals() else True),
-    ("Meaningful effect size (Cramer's V>0.1)", cramers_v > 0.1 if 'cramers_v' in locals() else True),
-    ("Balanced distribution (CV<1.0)", cv < 1.0),
-    ("Strong classification (confidence>15)", mean_confidence > 15)
-]
-
-passed = 0
-for criterion, test_passed in criteria:
-    status = "✅" if test_passed else "❌"
-    print(f"   {status} {criterion}")
-    if test_passed:
-        passed += 1
-
-print(f"\n   OVERALL: {passed}/5 criteria met")
-print(f"   STATUS: {'✅ PUBLICATION READY' if passed >= 4 else '⚠️  NEEDS IMPROVEMENT' if passed >= 3 else '❌ NOT READY'}")
-
-# 7. SAVE COMPREHENSIVE STATISTICAL RESULTS
-
-# Create detailed statistical results for academic paper
+# Save statistical results
 detailed_stats = {
     'sample_characteristics': {
         'industry_specific_papers': int(n),
-        'solution_classified_papers': int(n),
-        'data_quality': '100% classified data used for analysis'
+        'solution_classified_papers': int(n)
     },
     'association_tests': {
         'chi_square_statistic': float(chi2) if 'chi2' in locals() else None,
         'p_value': float(p_value) if 'p_value' in locals() else None,
-        'degrees_of_freedom': int(dof) if 'dof' in locals() else None,
-        'cramers_v': float(cramers_v) if 'cramers_v' in locals() else None,
-        'effect_size_category': 'Large' if 'cramers_v' in locals() and cramers_v > 0.3 else 'Medium' if 'cramers_v' in locals() and cramers_v > 0.1 else 'Small',
-        'statistically_significant': bool(p_value < 0.05) if 'p_value' in locals() else None
+        'cramers_v': float(cramers_v) if 'cramers_v' in locals() else None
     },
     'classification_quality': {
         'mean_confidence_score': float(mean_confidence),
-        'std_confidence_score': float(std_confidence),
-        'confidence_assessment': 'Strong' if mean_confidence > 25 else 'Moderate' if mean_confidence > 15 else 'Weak',
-        'min_confidence': float(confidence_scores.min()),
-        'max_confidence': float(confidence_scores.max())
-    },
-    'distribution_analysis': {
-        'coefficient_of_variation': float(cv),
-        'balance_assessment': 'Balanced' if cv < 0.5 else 'Moderate' if cv < 1.0 else 'Skewed',
-        'industry_counts': industry_counts.to_dict()
-    },
-    'publication_readiness': {
-        'criteria_met': int(passed),
-        'total_criteria': len(criteria),
-        'overall_assessment': 'Ready' if passed >= 4 else 'Needs Work' if passed >= 3 else 'Not Ready',
-        'individual_criteria': [{'criterion': crit, 'passed': bool(result)} for crit, result in criteria]
+        'std_confidence_score': float(std_confidence)
     }
 }
 
-# Save detailed JSON results
 with open(out_dir / 'statistical_validation_detailed.json', 'w', encoding='utf-8') as f:
     json.dump(detailed_stats, f, indent=2)
-print(f"✅ Saved: statistical_validation_detailed.json")
+print("✓ statistical_validation_detailed.json")
 
-# Create academic-ready summary table (UPDATED)
-stats_summary_data = [
-    {'Statistical_Test': 'Sample Size Analysis', 
-     'Value': f"{n:,} papers", 
-     'Result': 'Excellent' if n > 1000 else 'Good',
-     'Academic_Interpretation': f"Large sample size (n={n:,}) of industry-specific papers provides excellent statistical power."}
-]
-
-if 'chi2' in locals():
-    stats_summary_data.extend([
-        {'Statistical_Test': 'Association Test (Chi-square)', 
-         'Value': f"X² = {chi2:.2f}, df = {dof}, p = {p_value:.2e}", 
-         'Result': 'Significant' if p_value < 0.05 else 'Not Significant',
-         'Academic_Interpretation': f"Industry-solution associations are {'statistically significant' if p_value < 0.05 else 'not statistically significant'} at α = 0.05."},
-        
-        {'Statistical_Test': 'Effect Size (Cramer\'s V)', 
-         'Value': f"{cramers_v:.3f}", 
-         'Result': 'Large' if cramers_v > 0.3 else 'Medium' if cramers_v > 0.1 else 'Small',
-         'Academic_Interpretation': f"Effect size is {('large' if cramers_v > 0.3 else 'medium' if cramers_v > 0.1 else 'small')} (V = {cramers_v:.3f}), indicating {'strong' if cramers_v > 0.3 else 'moderate' if cramers_v > 0.1 else 'weak'} practical significance."}
-    ])
-
-stats_summary_data.extend([
-    {'Statistical_Test': 'Classification Confidence', 
-     'Value': f"M = {mean_confidence:.1f}, SD = {std_confidence:.1f}", 
-     'Result': 'Strong' if mean_confidence > 25 else 'Moderate' if mean_confidence > 15 else 'Weak',
-     'Academic_Interpretation': f"Mean classification confidence of {mean_confidence:.1f} indicates {'strong' if mean_confidence > 25 else 'moderate' if mean_confidence > 15 else 'weak'} algorithmic certainty."},
-    
-    {'Statistical_Test': 'Distribution Balance', 
-     'Value': f"CV = {cv:.2f}", 
-     'Result': 'Balanced' if cv < 0.5 else 'Moderate' if cv < 1.0 else 'Skewed',
-     'Academic_Interpretation': f"Coefficient of variation ({cv:.2f}) indicates {'balanced' if cv < 0.5 else 'moderately balanced' if cv < 1.0 else 'skewed'} distribution across industries."},
-    
-    {'Statistical_Test': 'Overall Robustness', 
-     'Value': f"{passed}/{len(criteria)} criteria met", 
-     'Result': 'Ready' if passed >= 4 else 'Needs Work',
-     'Academic_Interpretation': f"Study meets {passed} of {len(criteria)} robustness criteria, indicating {'high' if passed >= 4 else 'moderate' if passed >= 3 else 'low'} methodological rigor for publication."}
-])
-
-stats_summary = pd.DataFrame(stats_summary_data)
-
-# Save with UTF-8 encoding to prevent Unicode errors
-stats_summary.to_csv(out_dir / 'statistical_tests_comprehensive.csv', index=False, encoding='utf-8')
-print(f"✅ Saved: statistical_tests_comprehensive.csv")
-
-# Create a summary for direct use in academic writing (UPDATED FORMAT)
-academic_summary = f"""
-STATISTICAL VALIDATION RESULTS FOR ACADEMIC PAPER
-================================================
-
-Sample Characteristics:
-- Industry-specific papers analyzed: {n:,}
-- Data quality: 100% classified papers used for analysis
-
-Association Analysis:"""
-
-if 'chi2' in locals():
-    academic_summary += f"""
-- Chi-square test: X²({dof}) = {chi2:.2f}, p {('< 0.001' if p_value < 0.001 else f'= {p_value:.3f}')}
-- Effect size (Cramer's V): {cramers_v:.3f} ({'large' if cramers_v > 0.3 else 'medium' if cramers_v > 0.1 else 'small'} effect)
-- Statistical significance: {'Yes' if p_value < 0.05 else 'No'} (alpha = 0.05)"""
-else:
-    academic_summary += """
-- Analysis conducted on classified data subset"""
-
-academic_summary += f"""
-
-Classification Quality:
-- Mean confidence score: {mean_confidence:.1f} (SD = {std_confidence:.1f})
-- Confidence range: {confidence_scores.min():.1f} - {confidence_scores.max():.1f}
-- Quality assessment: {'Strong' if mean_confidence > 25 else 'Moderate' if mean_confidence > 15 else 'Weak'}
-
-Methodological Robustness: {passed}/{len(criteria)} criteria met
-
-RECOMMENDED ACADEMIC REPORTING:"""
-
-if 'chi2' in locals():
-    academic_summary += f"""
-"The analysis focused on {n:,} industry-specific papers from the blockchain copyright literature. 
-Chi-square analysis revealed {'statistically significant' if p_value < 0.05 else 'non-significant'} 
-associations between industries and blockchain solutions (X²({dof}) = {chi2:.2f}, p {('< 0.001' if p_value < 0.001 else f'= {p_value:.3f}')}) 
-with a {('large' if cramers_v > 0.3 else 'medium' if cramers_v > 0.1 else 'small')} effect size (Cramer's V = {cramers_v:.3f}). 
-The classification algorithm showed {'strong' if mean_confidence > 25 else 'moderate' if mean_confidence > 15 else 'weak'} confidence 
-(M = {mean_confidence:.1f}, SD = {std_confidence:.1f}), supporting the reliability of the taxonomic analysis."
-"""
-else:
-    academic_summary += f"""
-"The analysis focused on {n:,} industry-specific papers from the blockchain copyright literature. 
-The classification algorithm showed {'strong' if mean_confidence > 25 else 'moderate' if mean_confidence > 15 else 'weak'} confidence 
-(M = {mean_confidence:.1f}, SD = {std_confidence:.1f}), supporting the reliability of the taxonomic analysis."
-"""
-
-# Save with UTF-8 encoding to prevent Unicode errors
-with open(out_dir / 'academic_summary.txt', 'w', encoding='utf-8') as f:
-    f.write(academic_summary)
-print(f"✅ Saved: academic_summary.txt")
-
-# Save methodology configuration
 with open(out_dir / 'methodology_config.json', 'w', encoding='utf-8') as f:
     json.dump(METHODOLOGY_CONFIG, f, indent=2)
-print("✅ methodology_config.json")
+print("✓ methodology_config.json")
 
 # --------------------------------------------------------------------------
 # SUMMARY
 # --------------------------------------------------------------------------
-print("\n" + "=" * 80)
-print("ANALYSIS COMPLETE →", out_dir)
-print("=" * 80)
-
-print(f"""
-ANALYSIS RESULTS:
-================
-Industry-specific papers: {len(filtered_papers)}
-Solution-classified papers: {len(filtered_papers)}
-
-Top Industries: {', '.join([f"{ind} ({count})" for ind, count in industry_dist.head(3).items()])}
-Top Solutions: {', '.join([f"{sol} ({count})" for sol, count in solution_dist.head(3).items()])}
-
-OUTPUT FILES: {len([f for f in out_dir.iterdir() if f.suffix in ['.csv', '.png', '.json', '.txt']])} files generated in {out_dir}
-""")
-
-print("Analysis complete.")
+print(f"\nAnalysis complete.")
+print(f"Industry-specific papers: {len(filtered_papers)}")
+print(f"Top industries: {', '.join([f'{ind} ({count})' for ind, count in industry_dist.head(3).items()])}")
+print(f"Files generated: {len([f for f in out_dir.iterdir() if f.suffix in ['.csv', '.png', '.json']])}")
