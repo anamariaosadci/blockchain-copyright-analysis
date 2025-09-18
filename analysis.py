@@ -20,7 +20,7 @@ plt.style.use('default')
 # PATHS
 # --------------------------------------------------------------------------
 BASE_DIR = r"C:\Users\Lenovo\Desktop\Blockchain & Copyright - Bibliometric Analysis"
-papers_path = str(Path(BASE_DIR) / "results" / "final_deduplicated_dataset.csv")
+papers_path = str(Path(BASE_DIR) / "bibliographic_data" / "final_deduplicated_dataset.csv")
 taxonomy_xlsx_path = str(Path(BASE_DIR) / "Industry_categories.xlsx")
 out_dir = Path(BASE_DIR) / "analysis_results"
 out_dir.mkdir(parents=True, exist_ok=True)
@@ -507,54 +507,439 @@ except Exception as e:
     print(f"Export error: {e}")
 
 # --------------------------------------------------------------------------
-# STATISTICAL VALIDATION
+# STATISTICAL VALIDATION - EXCEL EXPORT
 # --------------------------------------------------------------------------
 print("\nStatistical validation...")
 
 n = len(filtered_papers)
 print(f"Industry-specific papers: {n:,}")
 
-if 'crosstab_filtered' in locals() and crosstab_filtered.size > 0:
-    contingency = crosstab_filtered
-    chi2, p_value, dof, expected = chi2_contingency(contingency)
-    n_total = contingency.sum().sum()
-    cramers_v = np.sqrt(chi2 / (n_total * (min(contingency.shape) - 1)))
-    print(f"Chi-square: {chi2:.2f}, p-value: {p_value:.2e}")
-    print(f"Effect size (Cramer's V): {cramers_v:.3f}")
+# Initialize variables to avoid "not defined" errors
+chi2 = p_value = dof = cramers_v = None
+contingency = None
 
+# Prepare statistical results for Excel
+statistical_results = []
+
+# Sample characteristics
+total_original_papers = len(papers_df)
+industry_specific_rate = (n / total_original_papers) * 100 if total_original_papers > 0 else 0
+
+statistical_results.extend([
+    {
+        'Category': 'Dataset Overview',
+        'Metric': 'Total papers analyzed',
+        'Value': total_original_papers,
+        'Description': 'Total number of papers in the original dataset before filtering',
+        'Interpretation': 'This represents the complete bibliometric dataset used as input for analysis.'
+    },
+    {
+        'Category': 'Dataset Overview',
+        'Metric': 'Industry-specific papers',
+        'Value': n,
+        'Description': f'Papers successfully classified into creative industries ({industry_specific_rate:.1f}% of total)',
+        'Interpretation': 'Higher numbers indicate more papers are relevant to creative industries. Good classification rates are typically 15-30% for specialized domains.'
+    },
+    {
+        'Category': 'Dataset Overview',
+        'Metric': 'Classification success rate',
+        'Value': f'{industry_specific_rate:.1f}%',
+        'Description': 'Percentage of papers that could be classified into specific creative industries',
+        'Interpretation': '15-20% = Good for specialized domains | 20-30% = Very good | >30% = Excellent domain relevance'
+    }
+])
+
+# Association tests (if contingency table exists)
+try:
+    # Check if crosstab_filtered was created earlier in the script
+    crosstab_filtered = pd.crosstab(filtered_papers['target_industry'], filtered_papers['blockchain_solution'])
+    crosstab_filtered = crosstab_filtered.loc[:, (crosstab_filtered != 0).any(axis=0)]
+    crosstab_filtered = crosstab_filtered.loc[(crosstab_filtered != 0).any(axis=1), :]
+    
+    if crosstab_filtered.size > 0:
+        contingency = crosstab_filtered
+        chi2, p_value, dof, expected = chi2_contingency(contingency)
+        n_total = contingency.sum().sum()
+        cramers_v = np.sqrt(chi2 / (n_total * (min(contingency.shape) - 1)))
+        
+        # Interpret statistical significance
+        if p_value < 0.001:
+            significance_interpretation = "Extremely strong evidence of association (p < 0.001)"
+        elif p_value < 0.01:
+            significance_interpretation = "Strong evidence of association (p < 0.01)"
+        elif p_value < 0.05:
+            significance_interpretation = "Significant association found (p < 0.05)"
+        else:
+            significance_interpretation = "No significant association found (p ≥ 0.05)"
+            
+        # Interpret effect size
+        if cramers_v < 0.1:
+            effect_interpretation = "Negligible association"
+        elif cramers_v < 0.3:
+            effect_interpretation = "Small to moderate association"
+        elif cramers_v < 0.5:
+            effect_interpretation = "Moderate to strong association"
+        else:
+            effect_interpretation = "Strong association"
+        
+        statistical_results.extend([
+            {
+                'Category': 'Industry-Solution Association',
+                'Metric': 'Chi-square statistic', 
+                'Value': round(chi2, 2),
+                'Description': f'Statistical test value measuring independence between industries and blockchain solutions',
+                'Interpretation': f'Higher values indicate stronger relationships. This value of {chi2:.1f} suggests {"strong" if chi2 > 20 else "moderate" if chi2 > 10 else "weak"} patterns between industries and solutions.'
+            },
+            {
+                'Category': 'Industry-Solution Association',
+                'Metric': 'Statistical significance (p-value)',
+                'Value': f"{p_value:.2e}",
+                'Description': 'Probability that the observed association occurred by chance',
+                'Interpretation': significance_interpretation
+            },
+            {
+                'Category': 'Industry-Solution Association', 
+                'Metric': 'Degrees of freedom',
+                'Value': dof,
+                'Description': 'Number of independent comparisons in the statistical test',
+                'Interpretation': f'Based on {contingency.shape[0]} industries and {contingency.shape[1]} solution types. Higher values indicate more complex relationships.'
+            },
+            {
+                'Category': 'Industry-Solution Association',
+                'Metric': "Association strength (Cramer's V)",
+                'Value': round(cramers_v, 3),
+                'Description': 'Measure of association strength between industries and solutions (0 = no association, 1 = perfect association)',
+                'Interpretation': f'{effect_interpretation}. Values: <0.1=negligible, 0.1-0.3=small-moderate, 0.3-0.5=moderate-strong, >0.5=strong.'
+            }
+        ])
+        
+        print(f"Chi-square: {chi2:.2f}, p-value: {p_value:.2e}")
+        print(f"Effect size (Cramer's V): {cramers_v:.3f}")
+        
+except Exception as e:
+    print(f"Contingency table analysis error: {e}")
+    statistical_results.extend([
+        {
+            'Category': 'Industry-Solution Association',
+            'Metric': 'Statistical test status',
+            'Value': 'Could not compute',
+            'Description': f'Error in statistical analysis: {str(e)}',
+            'Interpretation': 'Statistical association tests require sufficient data in multiple industries and solutions. Consider increasing sample size or broadening classification criteria.'
+        }
+    ])
+
+# Classification quality metrics
 confidence_scores = filtered_papers['industry_confidence_abs']
 mean_confidence = confidence_scores.mean()
 std_confidence = confidence_scores.std()
-print(f"Mean confidence: {mean_confidence:.1f} (SD: {std_confidence:.1f})")
+min_confidence = confidence_scores.min()
+max_confidence = confidence_scores.max()
 
+# Interpret confidence levels
+if mean_confidence >= 15:
+    confidence_interpretation = "High confidence - classifications are very reliable"
+elif mean_confidence >= 10:
+    confidence_interpretation = "Good confidence - classifications are reliable" 
+elif mean_confidence >= 5:
+    confidence_interpretation = "Moderate confidence - classifications are acceptable"
+else:
+    confidence_interpretation = "Low confidence - classifications may need refinement"
+
+statistical_results.extend([
+    {
+        'Category': 'Classification Quality',
+        'Metric': 'Average classification confidence',
+        'Value': round(mean_confidence, 1),
+        'Description': f'Mean confidence score across all classified papers (range: {min_confidence:.1f} to {max_confidence:.1f})',
+        'Interpretation': f'{confidence_interpretation}. Scale: <5=low, 5-10=moderate, 10-15=good, >15=high confidence.'
+    },
+    {
+        'Category': 'Classification Quality',
+        'Metric': 'Classification consistency', 
+        'Value': round(std_confidence, 1),
+        'Description': f'Standard deviation of confidence scores (lower = more consistent)',
+        'Interpretation': f'{"Very consistent" if std_confidence < 3 else "Moderately consistent" if std_confidence < 5 else "Variable"} classification quality across papers. Lower values indicate more uniform confidence levels.'
+    },
+    {
+        'Category': 'Classification Quality',
+        'Metric': 'High-confidence papers',
+        'Value': int((confidence_scores >= 10).sum()),
+        'Description': f'Number of papers with confidence ≥ 10 ({(confidence_scores >= 10).sum()/len(confidence_scores)*100:.1f}% of classified papers)',
+        'Interpretation': 'Papers with high confidence scores are most reliably classified. Higher percentages indicate better overall classification quality.'
+    }
+])
+
+# Distribution analysis
 industry_counts = filtered_papers['target_industry'].value_counts()
 cv = industry_counts.std() / industry_counts.mean()
+most_common_industry = industry_counts.index[0]
+least_common_industry = industry_counts.index[-1]
+
+# Interpret distribution balance
+if cv < 0.5:
+    balance_interpretation = "Very balanced - industries are evenly represented"
+elif cv < 1.0:
+    balance_interpretation = "Moderately balanced - some industries dominate but others are present"
+elif cv < 1.5:
+    balance_interpretation = "Unbalanced - few industries dominate the dataset"
+else:
+    balance_interpretation = "Highly unbalanced - one or two industries heavily dominate"
+
+statistical_results.extend([
+    {
+        'Category': 'Industry Distribution',
+        'Metric': 'Distribution balance (CV)',
+        'Value': round(cv, 2), 
+        'Description': f'Coefficient of variation measuring how evenly papers are distributed across industries',
+        'Interpretation': f'{balance_interpretation}. Scale: <0.5=very balanced, 0.5-1.0=moderate, 1.0-1.5=unbalanced, >1.5=highly unbalanced.'
+    },
+    {
+        'Category': 'Industry Distribution',
+        'Metric': 'Creative industries represented',
+        'Value': len(industry_counts),
+        'Description': f'Number of different creative industries found in the classified papers (out of {len(SELECTED_CATEGORIES)} possible)',
+        'Interpretation': f'{"Excellent" if len(industry_counts) >= 6 else "Good" if len(industry_counts) >= 4 else "Limited"} industry diversity. More industries indicate broader blockchain copyright applications.'
+    },
+    {
+        'Category': 'Industry Distribution',
+        'Metric': 'Dominant industry',
+        'Value': most_common_industry,
+        'Description': f'Industry with the most papers: {industry_counts.iloc[0]} papers ({industry_counts.iloc[0]/n*100:.1f}% of classified papers)',
+        'Interpretation': f'{"Moderately dominant" if industry_counts.iloc[0]/n < 0.4 else "Highly dominant" if industry_counts.iloc[0]/n < 0.6 else "Overwhelmingly dominant"} industry in blockchain copyright research.'
+    },
+    {
+        'Category': 'Industry Distribution',
+        'Metric': 'Emerging industry',
+        'Value': least_common_industry,
+        'Description': f'Industry with the fewest papers: {industry_counts.iloc[-1]} papers ({industry_counts.iloc[-1]/n*100:.1f}% of classified papers)',
+        'Interpretation': 'Industries with few papers may represent emerging areas or niche applications of blockchain copyright solutions.'
+    }
+])
+
+# Add solution diversity analysis
+solution_counts = filtered_papers['blockchain_solution'].value_counts()
+solution_cv = solution_counts.std() / solution_counts.mean()
+
+statistical_results.extend([
+    {
+        'Category': 'Solution Distribution', 
+        'Metric': 'Blockchain solutions identified',
+        'Value': len(solution_counts),
+        'Description': f'Number of different blockchain copyright solution types found (out of {len(BLOCKCHAIN_COPYRIGHT_SOLUTIONS)} possible)',
+        'Interpretation': f'{"Comprehensive" if len(solution_counts) >= 3 else "Moderate" if len(solution_counts) >= 2 else "Limited"} solution diversity indicates {"broad" if len(solution_counts) >= 3 else "focused"} research coverage.'
+    },
+    {
+        'Category': 'Solution Distribution',
+        'Metric': 'Primary solution focus',
+        'Value': solution_counts.index[0],
+        'Description': f'Most researched solution: {solution_counts.iloc[0]} papers ({solution_counts.iloc[0]/n*100:.1f}% of classified papers)',
+        'Interpretation': 'The dominant solution type indicates the primary focus of current blockchain copyright research.'
+    },
+    {
+        'Category': 'Solution Distribution',
+        'Metric': 'Solution balance (CV)',
+        'Value': round(solution_cv, 2),
+        'Description': 'How evenly research attention is distributed across different solution types',
+        'Interpretation': f'{"Balanced research focus" if solution_cv < 0.8 else "Uneven research focus"} across blockchain copyright solutions.'
+    }
+])
+
+print(f"Mean confidence: {mean_confidence:.1f} (SD: {std_confidence:.1f})")
 print(f"Distribution balance (CV): {cv:.2f}")
 
-# Save statistical results
-detailed_stats = {
-    'sample_characteristics': {
-        'industry_specific_papers': int(n),
-        'solution_classified_papers': int(n)
-    },
-    'association_tests': {
-        'chi_square_statistic': float(chi2) if 'chi2' in locals() else None,
-        'p_value': float(p_value) if 'p_value' in locals() else None,
-        'cramers_v': float(cramers_v) if 'cramers_v' in locals() else None
-    },
-    'classification_quality': {
-        'mean_confidence_score': float(mean_confidence),
-        'std_confidence_score': float(std_confidence)
-    }
-}
+# Export to Excel with multiple sheets and user-friendly formatting
+try:
+    with pd.ExcelWriter(out_dir / 'statistical_validation.xlsx', engine='openpyxl') as writer:
+        # Main statistical results with enhanced formatting
+        stats_df = pd.DataFrame(statistical_results)
+        stats_df.to_excel(writer, sheet_name='Statistical_Summary', index=False)
+        
+        # Create an executive summary sheet
+        executive_summary = [
+            {
+                'Key Finding': 'Dataset Quality',
+                'Value': f'{industry_specific_rate:.1f}%',
+                'What This Means': f'Successfully classified {industry_specific_rate:.1f}% of papers into creative industries, indicating {"excellent" if industry_specific_rate > 30 else "good" if industry_specific_rate > 20 else "moderate"} domain relevance.'
+            },
+            {
+                'Key Finding': 'Classification Reliability', 
+                'Value': f'{mean_confidence:.1f} avg confidence',
+                'What This Means': f'{"High" if mean_confidence >= 15 else "Good" if mean_confidence >= 10 else "Moderate"} confidence in paper classifications, meaning results are {"very" if mean_confidence >= 15 else ""} reliable.'
+            },
+            {
+                'Key Finding': 'Industry Coverage',
+                'Value': f'{len(industry_counts)} industries',
+                'What This Means': f'Blockchain copyright research spans {len(industry_counts)} creative industries, showing {"broad" if len(industry_counts) >= 5 else "moderate" if len(industry_counts) >= 3 else "focused"} application scope.'
+            },
+            {
+                'Key Finding': 'Research Focus',
+                'Value': most_common_industry,
+                'What This Means': f'{most_common_industry} dominates with {industry_counts.iloc[0]} papers ({industry_counts.iloc[0]/n*100:.1f}%), indicating this is the primary focus area.'
+            }
+        ]
+        
+        if chi2 is not None and p_value is not None:
+            executive_summary.append({
+                'Key Finding': 'Industry-Solution Patterns',
+                'Value': f'p-value: {p_value:.2e}',
+                'What This Means': f'{"Strong statistical evidence" if p_value < 0.01 else "Some evidence" if p_value < 0.05 else "No clear evidence"} that certain industries prefer specific blockchain solutions.'
+            })
+        
+        pd.DataFrame(executive_summary).to_excel(writer, sheet_name='Executive_Summary', index=False)
+        
+        # Industry analysis with user-friendly descriptions
+        if 'industry_analysis' in locals() and industry_analysis:
+            industry_df = pd.DataFrame(industry_analysis)
+            # Add interpretation columns
+            industry_df['Growth_Interpretation'] = industry_df['Growth_2020_Plus'].apply(
+                lambda x: 'High growth' if pd.notna(x) and x > 0.5 else 
+                         'Moderate growth' if pd.notna(x) and x > 0 else
+                         'Declining' if pd.notna(x) and x < -0.2 else
+                         'Stable' if pd.notna(x) else 'Insufficient data'
+            )
+            industry_df['Confidence_Level'] = industry_df['Avg_Industry_Confidence_Abs'].apply(
+                lambda x: 'High' if x >= 15 else 'Good' if x >= 10 else 'Moderate' if x >= 5 else 'Low'
+            )
+            industry_df.to_excel(writer, sheet_name='Industry_Analysis', index=False)
+            
+        # Solution analysis with explanations
+        if 'solution_analysis' in locals() and solution_analysis:
+            solution_df = pd.DataFrame(solution_analysis)
+            solution_df['Research_Maturity'] = solution_df['Mean_Year'].apply(
+                lambda x: 'Emerging (recent focus)' if pd.notna(x) and x >= 2020 else
+                         'Established (ongoing research)' if pd.notna(x) and x >= 2018 else
+                         'Early stage' if pd.notna(x) else 'Unknown timeline'
+            )
+            solution_df['Industry_Reach'] = solution_df['Industries_Covered'].apply(
+                lambda x: 'Broad application' if x >= 4 else 'Moderate reach' if x >= 2 else 'Specialized application'
+            )
+            solution_df.to_excel(writer, sheet_name='Solution_Analysis', index=False)
+        
+        # Contingency table with labels
+        try:
+            if 'crosstab_filtered' in locals() and crosstab_filtered.size > 0:
+                crosstab_filtered.to_excel(writer, sheet_name='Industry_Solution_Matrix')
+                
+                # Add interpretation sheet for the matrix
+                matrix_interpretation = []
+                for industry in crosstab_filtered.index:
+                    for solution in crosstab_filtered.columns:
+                        count = crosstab_filtered.loc[industry, solution]
+                        if count > 0:
+                            percentage = (count / n) * 100
+                            matrix_interpretation.append({
+                                'Industry': industry,
+                                'Solution': solution,
+                                'Papers': int(count),
+                                'Percentage_of_Total': f'{percentage:.1f}%',
+                                'Interpretation': f'{"Strong focus" if count >= 10 else "Moderate focus" if count >= 5 else "Emerging area"} - {industry} research on {solution.lower()}'
+                            })
+                
+                pd.DataFrame(matrix_interpretation).to_excel(writer, sheet_name='Matrix_Interpretation', index=False)
+        except Exception as e:
+            print(f"Contingency table sheet error: {e}")
+        
+        # Confidence score distribution with context
+        try:
+            confidence_stats = pd.DataFrame({
+                'Paper_ID': range(len(filtered_papers)),
+                'Confidence_Score': filtered_papers['industry_confidence_abs'],
+                'Confidence_Level': filtered_papers['industry_confidence_abs'].apply(
+                    lambda x: 'High (≥15)' if x >= 15 else 'Good (10-14)' if x >= 10 else 'Moderate (5-9)' if x >= 5 else 'Low (<5)'
+                ),
+                'Industry': filtered_papers['target_industry'],
+                'Solution': filtered_papers['blockchain_solution'],
+                'Reliability': filtered_papers['industry_confidence_abs'].apply(
+                    lambda x: 'Very reliable' if x >= 15 else 'Reliable' if x >= 10 else 'Acceptable' if x >= 5 else 'Use with caution'
+                )
+            })
+            confidence_stats.to_excel(writer, sheet_name='Confidence_Scores', index=False)
+        except Exception as e:
+            print(f"Confidence scores sheet error: {e}")
+        
+    print("✓ statistical_validation.xlsx (multi-sheet with interpretations)")
+    
+except Exception as e:
+    print(f"Excel export error: {e}")
+    # Enhanced fallback to CSV with interpretations
+    try:
+        stats_with_summary = pd.DataFrame(statistical_results)
+        stats_with_summary.to_csv(out_dir / 'statistical_validation_detailed.csv', index=False)
+        print("✓ statistical_validation_detailed.csv (fallback with interpretations)")
+    except Exception as csv_error:
+        print(f"CSV fallback error: {csv_error}")
 
-with open(out_dir / 'statistical_validation_detailed.json', 'w', encoding='utf-8') as f:
-    json.dump(detailed_stats, f, indent=2)
-print("✓ statistical_validation_detailed.json")
+# Still save methodology config as JSON (useful for reproducibility)
+try:
+    with open(out_dir / 'methodology_config.json', 'w', encoding='utf-8') as f:
+        json.dump(METHODOLOGY_CONFIG, f, indent=2)
+    print("✓ methodology_config.json")
+except Exception as e:
+    print(f"Methodology JSON export error: {e}")
 
-with open(out_dir / 'methodology_config.json', 'w', encoding='utf-8') as f:
-    json.dump(METHODOLOGY_CONFIG, f, indent=2)
-print("✓ methodology_config.json")
+# Also create methodology summary in Excel
+try:
+    methodology_summary = []
+    
+    # Classification parameters
+    if 'METHODOLOGY_CONFIG' in locals():
+        for key, value in METHODOLOGY_CONFIG['classification_parameters'].items():
+            methodology_summary.append({
+                'Section': 'Classification Parameters',
+                'Parameter': key.replace('_', ' ').title(),
+                'Value': str(value),
+                'Description': 'Parameters used for paper classification'
+            })
+        
+        # Solution categories  
+        methodology_summary.append({
+            'Section': 'Solution Categories',
+            'Parameter': 'Approach',
+            'Value': METHODOLOGY_CONFIG['solution_categories']['approach'],
+            'Description': 'Method for defining blockchain solutions'
+        })
+        
+        methodology_summary.append({
+            'Section': 'Solution Categories', 
+            'Parameter': 'Categories',
+            'Value': ', '.join(METHODOLOGY_CONFIG['solution_categories']['categories']),
+            'Description': 'Blockchain copyright solution categories analyzed'
+        })
+        
+        # Data preprocessing
+        for key, value in METHODOLOGY_CONFIG['data_preprocessing'].items():
+            methodology_summary.append({
+                'Section': 'Data Preprocessing',
+                'Parameter': key.replace('_', ' ').title(), 
+                'Value': str(value),
+                'Description': 'Data preparation steps applied'
+            })
+        
+        # Validation methods
+        methodology_summary.append({
+            'Section': 'Validation Methods',
+            'Parameter': 'Methods Applied',
+            'Value': ', '.join(METHODOLOGY_CONFIG['validation_methods']),
+            'Description': 'Statistical and quality validation approaches'
+        })
+        
+        # Save methodology to Excel
+        with pd.ExcelWriter(out_dir / 'methodology_summary.xlsx', engine='openpyxl') as writer:
+            pd.DataFrame(methodology_summary).to_excel(writer, sheet_name='Methodology', index=False)
+            
+        print("✓ methodology_summary.xlsx")
+    else:
+        print("! METHODOLOGY_CONFIG not found, skipping methodology summary")
+        
+except Exception as e:
+    print(f"Methodology Excel export error: {e}")
+
+print(f"\nExcel files created:")
+print(f"- statistical_validation.xlsx: Comprehensive statistical results")
+if 'methodology_summary' in locals() and methodology_summary:
+    print(f"- methodology_summary.xlsx: Analysis methodology and parameters")
+else:
+    print(f"- methodology_summary.xlsx: Not created (configuration missing)")
 
 # --------------------------------------------------------------------------
 # SUMMARY
@@ -562,4 +947,4 @@ print("✓ methodology_config.json")
 print(f"\nAnalysis complete.")
 print(f"Industry-specific papers: {len(filtered_papers)}")
 print(f"Top industries: {', '.join([f'{ind} ({count})' for ind, count in industry_dist.head(3).items()])}")
-print(f"Files generated: {len([f for f in out_dir.iterdir() if f.suffix in ['.csv', '.png', '.json']])}")
+print(f"Files generated: {len([f for f in out_dir.iterdir() if f.suffix in ['.csv', '.png', '.json', '.xlsx']])}")
