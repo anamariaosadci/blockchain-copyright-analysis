@@ -1,6 +1,6 @@
 # Blockchain-Copyright Bibliometric Analysis Scripts & Files
 
-Python scripts for bibliometric analysis of blockchain copyright research across creative industries.
+Python scripts & industry categorization .xlsx file for bibliometric analysis of blockchain copyright research across creative industries.
 
 ## Files
 - `deduplication.py` - Combine and deduplicate bibliographic data from multiple databases
