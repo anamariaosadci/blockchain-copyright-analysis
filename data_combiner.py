@@ -16,6 +16,7 @@ def load_ris_file(file_path, database_name):
         
         records = []
         for entry in entries:
+            # Extract and standardize fields from RIS entry
             record = {
                 'title': entry.get('title', [''])[0] if isinstance(entry.get('title'), list) else entry.get('title', ''),
                 'authors': '; '.join(entry.get('authors', [])) if entry.get('authors') else '',
@@ -51,17 +52,17 @@ def load_ris_file(file_path, database_name):
         return pd.DataFrame()
 
 def clean_text_for_comparison(text):
-    """Clean text for similarity comparison"""
+    """Normalize text for similarity comparison by removing punctuation and standardizing whitespace"""
     if pd.isna(text) or text == '':
         return ''
     
     text = str(text).lower()
-    text = re.sub(r'[^\w\s]', ' ', text)
-    text = re.sub(r'\s+', ' ', text)
+    text = re.sub(r'[^\w\s]', ' ', text)  # Remove punctuation
+    text = re.sub(r'\s+', ' ', text)      # Normalize whitespace
     return text.strip()
 
 def fast_similarity_check(text1, text2, threshold=0.85):
-    """Calculate text similarity with optimization"""
+    """Calculate text similarity with early termination optimizations"""
     if not text1 or not text2:
         return 0.0
     
@@ -69,6 +70,7 @@ def fast_similarity_check(text1, text2, threshold=0.85):
     if len1 == 0 or len2 == 0:
         return 0.0
     
+    # Skip if length difference is too large
     length_ratio = min(len1, len2) / max(len1, len2)
     if length_ratio < 0.5:
         return 0.0
@@ -85,19 +87,21 @@ def fast_similarity_check(text1, text2, threshold=0.85):
         return 0.0
 
 def find_duplicates_optimized(df, title_threshold=0.85):
-    """Find duplicate papers using DOI and title similarity"""
+    """Find duplicate papers using DOI matching first, then title similarity"""
     print("Searching for duplicates...")
     print(f"Total comparisons needed: ~{len(df)*(len(df)-1)//2:,}")
     
     duplicates = []
     processed_indices = set()
     
+    # Phase 1: Group by identical DOI
     doi_groups = defaultdict(list)
     for idx, row in df.iterrows():
         doi = str(row.get('doi', '')).strip().lower()
         if doi and doi != 'nan' and len(doi) > 5:
             doi_groups[doi].append(idx)
     
+    # Process DOI matches
     for doi, indices in doi_groups.items():
         if len(indices) > 1:
             duplicates.append({
@@ -111,6 +115,7 @@ def find_duplicates_optimized(df, title_threshold=0.85):
     print(f"Found {len(duplicates)} DOI duplicate groups")
     print(f"Remaining papers to check: {len(df) - len(processed_indices)}")
     
+    # Phase 2: Title similarity for remaining papers
     remaining_indices = [i for i in range(len(df)) if i not in processed_indices]
     
     total_comparisons = len(remaining_indices) * (len(remaining_indices) - 1) // 2
@@ -136,6 +141,7 @@ def find_duplicates_optimized(df, title_threshold=0.85):
             
             other_paper = df.iloc[idx2]
             
+            # Skip if publication years differ by more than 1
             year1 = str(current_paper.get('year', ''))
             year2 = str(other_paper.get('year', ''))
             if year1 and year2 and year1 != 'nan' and year2 != 'nan':
@@ -145,6 +151,7 @@ def find_duplicates_optimized(df, title_threshold=0.85):
                 except:
                     pass
             
+            # Check title similarity
             title_similarity = fast_similarity_check(
                 current_paper.get('title', ''), 
                 other_paper.get('title', ''), 
@@ -172,12 +179,13 @@ def find_duplicates_optimized(df, title_threshold=0.85):
     return duplicates
 
 def select_best_record_from_duplicates(df, duplicate_groups):
-    """Create deduplicated dataset by selecting best record from each group"""
+    """Create deduplicated dataset by selecting the highest quality record from each group"""
     print("Creating deduplicated dataset...")
     
     keep_indices = set(range(len(df)))
     removal_summary = defaultdict(int)
     
+    # Database priority: Web of Science > Scopus > OpenAlex
     database_priority = {
         'Web of Science': 3,
         'Scopus': 2, 
@@ -187,10 +195,12 @@ def select_best_record_from_duplicates(df, duplicate_groups):
     for group in duplicate_groups:
         indices = group['indices']
         
+        # Remove all duplicates first
         for idx in indices:
             keep_indices.discard(idx)
             removal_summary[df.iloc[idx]['database']] += 1
         
+        # Select best record based on database priority and data completeness
         best_index = None
         best_priority = -1
         
@@ -198,6 +208,7 @@ def select_best_record_from_duplicates(df, duplicate_groups):
             db_name = df.iloc[idx]['database']
             priority = database_priority.get(db_name, 0)
             
+            # Count non-empty essential fields
             record = df.iloc[idx]
             completeness = sum(1 for field in ['title', 'authors', 'year', 'journal', 'abstract', 'doi'] 
                              if record[field] and str(record[field]) != 'nan' and str(record[field]).strip() != '')
@@ -208,6 +219,7 @@ def select_best_record_from_duplicates(df, duplicate_groups):
                 best_priority = total_score
                 best_index = idx
         
+        # Keep the best record
         if best_index is not None:
             keep_indices.add(best_index)
             removal_summary[df.iloc[best_index]['database']] -= 1
@@ -223,7 +235,7 @@ def select_best_record_from_duplicates(df, duplicate_groups):
     return final_df
 
 def generate_comprehensive_statistics(original_df, final_df, duplicate_groups):
-    """Generate statistics about dataset processing"""
+    """Generate detailed statistics about the deduplication process"""
     print("Generating statistics...")
     
     overall_stats = {
@@ -233,6 +245,7 @@ def generate_comprehensive_statistics(original_df, final_df, duplicate_groups):
         'duplicate_groups': len(duplicate_groups)
     }
     
+    # Statistics by database
     database_stats = {}
     for db in original_df['database'].unique():
         original_count = len(original_df[original_df['database'] == db])
@@ -244,10 +257,12 @@ def generate_comprehensive_statistics(original_df, final_df, duplicate_groups):
             'retention_rate': (final_count / original_count * 100) if original_count > 0 else 0
         }
     
+    # Distribution analysis
     year_distribution = final_df['year'].value_counts().sort_index()
     top_journals = final_df['journal'].value_counts().head(15)
     doc_types = final_df['document_type'].value_counts()
     
+    # Data quality metrics
     quality_metrics = {}
     for field in ['title', 'authors', 'year', 'journal', 'abstract', 'doi', 'keywords']:
         filled_count = final_df[field].notna().sum()
@@ -266,7 +281,7 @@ def generate_comprehensive_statistics(original_df, final_df, duplicate_groups):
     }
 
 def print_detailed_statistics(stats):
-    """Print formatted statistics"""
+    """Print formatted deduplication results"""
     print("\n" + "="*50)
     print("DEDUPLICATION RESULTS")
     print("="*50)
@@ -286,7 +301,7 @@ def print_detailed_statistics(stats):
         print(f"   {field.title()}: {metrics['percentage']:.1f}%")
 
 def save_as_ris(df, filename):
-    """Save DataFrame as RIS file"""
+    """Convert DataFrame back to RIS format for reference managers"""
     print(f"   Converting to RIS...")
     
     ris_entries = []
@@ -294,6 +309,7 @@ def save_as_ris(df, filename):
     for _, row in df.iterrows():
         entry = {}
         
+        # Map document type
         doc_type = str(row.get('document_type', '')).upper()
         if 'ARTICLE' in doc_type or 'JOUR' in doc_type:
             entry['type_of_reference'] = 'JOUR'
@@ -306,6 +322,7 @@ def save_as_ris(df, filename):
         else:
             entry['type_of_reference'] = 'GEN'
         
+        # Add fields if they exist and aren't empty
         if row.get('title') and str(row['title']) != 'nan':
             entry['title'] = str(row['title'])
         
@@ -343,6 +360,7 @@ def save_as_ris(df, filename):
         if row.get('issue') and str(row['issue']) != 'nan':
             entry['number'] = str(row['issue'])
         
+        # Handle page ranges
         if row.get('pages') and str(row['pages']) != 'nan':
             pages = str(row['pages'])
             if '-' in pages:
@@ -363,6 +381,7 @@ def save_as_ris(df, filename):
         if row.get('language') and str(row['language']) != 'nan':
             entry['language'] = str(row['language'])
         
+        # Add source database info
         if row.get('database'):
             entry['notes'] = f"Source: {row['database']}"
         
@@ -375,18 +394,20 @@ def save_as_ris(df, filename):
     except Exception as e:
         print(f"   Error saving RIS: {str(e)}")
 
-def save_all_results(final_df, duplicate_groups, stats, output_folder="results"):
-    """Save results to files"""
+def save_all_results(final_df, duplicate_groups, stats, output_folder="bibliographic_data"):
+    """Save all output files to the specified folder"""
     print(f"\nSaving to '{output_folder}'...")
     
     Path(output_folder).mkdir(exist_ok=True)
     
+    # Save final deduplicated dataset
     final_df.to_csv(f"{output_folder}/final_deduplicated_dataset.csv", index=False, encoding='utf-8')
     print(f"   Final dataset: CSV saved")
     
     save_as_ris(final_df, f"{output_folder}/final_deduplicated_dataset.ris")
     print(f"   Final dataset: RIS saved")
     
+    # Save duplicate analysis
     if duplicate_groups:
         duplicate_records = []
         for group in duplicate_groups:
@@ -401,6 +422,7 @@ def save_all_results(final_df, duplicate_groups, stats, output_folder="results")
                                               index=False, encoding='utf-8')
         print(f"   Duplicate analysis: saved")
     
+    # Save processing report
     with open(f"{output_folder}/processing_report.txt", 'w', encoding='utf-8') as f:
         f.write("DEDUPLICATION REPORT\n")
         f.write("="*25 + "\n\n")
@@ -417,6 +439,7 @@ def save_all_results(final_df, duplicate_groups, stats, output_folder="results")
     
     print(f"   Processing report: saved")
     
+    # Save analysis-ready dataset
     analysis_df = final_df[['title', 'authors', 'year', 'journal', 'abstract', 
                            'keywords', 'doi', 'database', 'document_type', 'times_cited']].copy()
     analysis_df.to_csv(f"{output_folder}/dataset_for_bibliometric_analysis.csv", 
@@ -424,10 +447,11 @@ def save_all_results(final_df, duplicate_groups, stats, output_folder="results")
     print(f"   Analysis dataset: saved")
 
 def main():
-    """Main processing function"""
+    """Main processing function - orchestrates the entire deduplication workflow"""
     print("BIBLIOMETRIC DATA DEDUPLICATION")
     print("="*35)
     
+    # Define expected RIS input files
     ris_files = {
         'Web of Science': 'wos_data.ris',
         'Scopus': 'scopus_data.ris', 
@@ -450,21 +474,26 @@ def main():
         print("\nNo files loaded.")
         return
     
+    # Combine all datasets
     print(f"\nCombining datasets...")
     combined_data = pd.concat(all_datasets, ignore_index=True)
     print(f"   Total: {len(combined_data):,} records")
     
+    # Find duplicates
     print(f"\nFinding duplicates...")
     duplicate_groups = find_duplicates_optimized(combined_data)
     
+    # Create deduplicated dataset
     print(f"\nCreating final dataset...")
     final_dataset = select_best_record_from_duplicates(combined_data, duplicate_groups)
     
+    # Generate statistics
     print(f"\nAnalyzing results...")
     statistics = generate_comprehensive_statistics(combined_data, final_dataset, duplicate_groups)
     
     print_detailed_statistics(statistics)
     
+    # Save all results
     print(f"\nSaving results...")
     save_all_results(final_dataset, duplicate_groups, statistics)
     
