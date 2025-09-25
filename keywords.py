@@ -216,7 +216,7 @@ def generate_statistics(all_keywords, keyword_freq):
 
 def main():
     """Main keyword extraction function"""
-    file_path = r"C:\Users\Lenovo\Desktop\Blockchain & Copyright - Bibliometric Analysis\results\final_deduplicated_dataset.csv"
+    file_path = r"C:\Users\Lenovo\Desktop\Blockchain & Copyright - Bibliometric Analysis\bibliographic_data\final_deduplicated_dataset.csv"
     
     print("KEYWORD EXTRACTION")
     print("="*30)
