@@ -4,6 +4,7 @@ from pathlib import Path
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
+from scipy import stats
 
 plt.rcParams['figure.dpi'] = 150
 plt.rcParams['font.size'] = 10
@@ -72,7 +73,7 @@ SELECTED_CATEGORIES = [
     "NFT & Digital Assets"
 ]
 
-# Industry keyword dictionary
+# Build industry keyword dictionary
 filtered_taxonomy = taxonomy_df[taxonomy_df['Category'].isin(SELECTED_CATEGORIES)].copy()
 filtered_taxonomy['Keyword'] = filtered_taxonomy['Keyword'].astype(str).str.strip().str.lower()
 
@@ -209,21 +210,21 @@ print("\nGenerating visualizations...")
 
 # 1. Industry distribution bar chart
 try:
-    plt.figure(figsize=(12, max(6, 0.5 * len(industry_distribution))))
+    fig, ax = plt.subplots(figsize=(12, max(6, 0.5 * len(industry_distribution))))
     colors = plt.cm.Set3(np.linspace(0, 1, len(industry_distribution)))
     
     y_pos = np.arange(len(industry_distribution))
-    plt.barh(y_pos, industry_distribution.values, color=colors, alpha=0.8)
-    plt.yticks(y_pos, industry_distribution.index)
-    plt.xlabel('Number of Papers', fontweight='bold')
-    plt.title('Blockchain Copyright Research by Creative Industry', fontweight='bold', pad=20)
+    ax.barh(y_pos, industry_distribution.values, color=colors, alpha=0.8)
+    ax.set_yticks(y_pos)
+    ax.set_yticklabels(industry_distribution.index)
+    ax.set_xlabel('Number of Papers', fontweight='bold')
     
     # Add value labels
     for i, count in enumerate(industry_distribution.values):
-        plt.text(count + max(industry_distribution.values)*0.01, i, str(count), 
+        ax.text(count + max(industry_distribution.values)*0.01, i, str(count), 
                 va='center', fontweight='bold')
     
-    plt.grid(axis='x', alpha=0.3)
+    ax.grid(axis='x', alpha=0.3)
     plt.tight_layout()
     plt.savefig(out_dir / 'industry_distribution.png', dpi=300, bbox_inches='tight')
     plt.close()
@@ -245,8 +246,6 @@ try:
                                alpha=0.8, ax=ax)
             ax.set_xlabel('Year', weight='bold', fontsize=12)
             ax.set_ylabel('Number of Papers', weight='bold', fontsize=12)
-            ax.set_title('Temporal Evolution of Blockchain Copyright Research by Industry', 
-                        weight='bold', fontsize=14, pad=20)
             ax.legend(fontsize=8, loc='upper left')
             ax.grid(True, alpha=0.3, linestyle='--')
             ax.spines['top'].set_visible(False)
@@ -273,7 +272,7 @@ except Exception as e:
 # --------------------------------------------------------------------------
 print("\nExporting results...")
 
-# Export classified papers
+# Export classified papers (CSV)
 try:
     export_columns = ['title', 'authors', 'year', 'journal', 'industry', 'confidence', 
                      'matched_terms', 'match_count']
@@ -287,46 +286,47 @@ try:
 except Exception as e:
     print(f"Error exporting main results: {e}")
 
-# Export industry analysis
+# Create simplified Excel summary with requested columns only
 try:
     industry_analysis = []
     for industry, count in industry_distribution.items():
         subset = industry_papers[industry_papers['industry'] == industry]
         
+        # Get papers with valid years for this industry
+        valid_year_subset = subset[subset['year'].notna()]
+        
         # Calculate growth rate (2020+ vs pre-2020)
-        recent_papers = (subset['year'] >= 2020).sum() if subset['year'].notna().any() else 0
-        older_papers = (subset['year'] < 2020).sum() if subset['year'].notna().any() else 0
-        growth_rate = recent_papers / older_papers if older_papers > 0 else float('inf') if recent_papers > 0 else 0
+        recent_papers = (valid_year_subset['year'] >= 2020).sum() if len(valid_year_subset) > 0 else 0
+        older_papers = (valid_year_subset['year'] < 2020).sum() if len(valid_year_subset) > 0 else 0
+        
+        if older_papers > 0:
+            growth_rate = f'{recent_papers / older_papers:.2f}x'
+        elif recent_papers > 0:
+            growth_rate = 'New field'
+        else:
+            growth_rate = 'N/A'
+        
+        # Calculate modal year (most frequent year)
+        if len(valid_year_subset) > 0:
+            modal_year = int(valid_year_subset['year'].mode().iloc[0]) if not valid_year_subset['year'].mode().empty else 'N/A'
+            first_year = int(valid_year_subset['year'].min())
+        else:
+            modal_year = 'N/A'
+            first_year = 'N/A'
         
         industry_analysis.append({
             'Industry': industry,
-            'Paper_Count': count,
-            'Percentage': f'{(count/classified_papers_count)*100:.1f}%',
-            'Avg_Confidence': f'{subset["confidence"].mean():.1f}',
-            'Median_Year': subset['year'].median() if subset['year'].notna().any() else 'N/A',
-            'Recent_Papers_2020+': recent_papers,
-            'Pre_2020_Papers': older_papers,
-            'Growth_Rate_2020+': f'{growth_rate:.1f}x' if growth_rate != float('inf') else 'New field'
+            'Number of Papers': count,
+            '% of Total': f'{(count/classified_papers_count)*100:.1f}%',
+            'Growth Rate': growth_rate,
+            'Modal Year': modal_year,
+            'First Publication Year': first_year
         })
     
-    pd.DataFrame(industry_analysis).to_csv(
-        out_dir / 'industry_summary.csv', 
-        index=False, encoding='utf-8'
-    )
-    print("✓ industry_summary.csv")
-except Exception as e:
-    print(f"Error exporting industry analysis: {e}")
-
-# Create Excel summary
-try:
-    with pd.ExcelWriter(out_dir / 'analysis_summary.xlsx', engine='openpyxl') as writer:
-        pd.DataFrame(industry_analysis).to_excel(writer, sheet_name='Industry_Analysis', index=False)
-        
-        # Add temporal data if available
-        if 'yearly_industry' in locals() and not yearly_industry.empty:
-            yearly_industry.to_excel(writer, sheet_name='Temporal_Analysis')
-        
-    print("✓ analysis_summary.xlsx")
+    # Create DataFrame and save to Excel
+    summary_df = pd.DataFrame(industry_analysis)
+    summary_df.to_excel(out_dir / 'industry_summary.xlsx', index=False, engine='openpyxl')
+    print("✓ industry_summary.xlsx")
     
 except Exception as e:
     print(f"Error exporting Excel summary: {e}")
